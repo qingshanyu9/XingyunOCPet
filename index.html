@@ -1,0 +1,458 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>OC Desktop Pet</title>
+
+  <!-- Font Awesome（黑白图标） -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+
+  <style>
+    :root{
+      --avatar-scale: 0.50;
+
+      --base-w: 320px;    /* 右侧：桌宠基础区域宽度（人物+底栏） */
+      --panel-w: 300px;   /* 左侧：聊天/工具侧栏宽度 */
+      --bottom-h: 54px;   /* 底部栏高度（菜单+输入框+发送） */
+      --info-h: 76px;     /* 信息面板高度 */
+
+      --pad: 10px;
+      --r: 16px;
+    }
+
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+      user-select: none;
+    }
+
+    #stage{
+      position:absolute; inset:0;
+      border-radius: var(--r);
+      overflow:hidden;
+      background: transparent;
+    }
+
+    /* ====== 布局：右侧固定桌宠区 + 左侧扩展面板区 ====== */
+    #base{
+      position:absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: var(--base-w);
+      pointer-events: auto;
+    }
+
+    #panels{
+      position:absolute;
+      top: 0;
+      left: 0;
+      right: var(--base-w);
+      bottom: 0;
+      pointer-events: none; /* 默认不吃事件，side 自己开 */
+    }
+
+    /* ========== 数字人渲染区（始终不因面板/信息面板变化而移动） ========== */
+    #sdk-wrap{
+      position:absolute;
+      left: 0; right: 0;
+      top: 0;
+      bottom: calc(var(--bottom-h) + var(--pad));
+      pointer-events: auto;
+    }
+
+    #sdk{ width:100%; height:100%; }
+
+    /* 缩放数字人（只影响数字人画布） */
+    #sdk-wrap canvas, #sdk-wrap video{
+      transform: scale(var(--avatar-scale));
+      transform-origin: 92% 100%;
+    }
+
+    /* ========== 信息面板（默认隐藏；不影响人物位置） ========== */
+    #info-panel{
+      position:absolute;
+      left: var(--pad);
+      right: var(--pad);
+      top: var(--pad);
+      height: calc(var(--info-h) - var(--pad));
+      border-radius: 14px;
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.12);
+      display:none;
+      z-index: 30;
+      pointer-events:auto;
+      padding: 8px 10px;
+      box-sizing: border-box;
+    }
+    body.info-open #info-panel{ display:block; }
+
+    #info-top{
+      display:flex;
+      justify-content: space-between;
+      align-items:center;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color:#111;
+    }
+    #info-name{ font-weight: 700; }
+    .stats{
+      display:flex; gap: 3px; align-items:center;
+      font-size: 10px;
+    }
+    .stat{
+      display:flex; align-items:center; gap: 1px;
+      min-width: 90px;
+    }
+    .bar{
+      width: 86px; height: 6px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.12);
+      overflow:hidden;
+    }
+    .bar b{
+      display:block; height:100%;
+      width:50%;
+      background: rgba(0,0,0,0.70);
+    }
+    .val{
+      width: 25px;
+      text-align:right;
+      opacity:.75;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ========== 左侧面板区：聊天/工具（互斥打开） ========== */
+    .side{
+      position:absolute;
+      top: var(--pad);
+      bottom: calc(var(--bottom-h) + var(--pad)*2);
+      left: var(--pad);
+      right: var(--pad);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.18);
+      overflow:hidden;
+      display:none;
+      z-index: 40;
+      pointer-events:auto;
+    }
+
+    body.tools-open #tools-panel{ display:block; }
+    body.chat-open  #chat-panel { display:block; }
+
+    .side .head{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(0,0,0,0.08);
+      font-size: 13px;
+      font-weight: 700;
+      color:#111;
+    }
+    .side .content{
+      padding: 10px 12px;
+      font-size: 12px;
+      color:#222;
+      height: calc(100% - 44px);
+      box-sizing: border-box;
+      overflow:auto;
+    }
+
+    /* 工具页：时间/日期/天气/地点 + 待办 */
+    .kvs{
+      display:flex; justify-content: space-between; gap: 10px;
+      margin-bottom: 10px;
+    }
+    .kvs .big{ font-size: 18px; font-weight: 800; }
+    .kvs .sub{ opacity:.7; margin-top: 2px; }
+
+    .row{ display:flex; gap: 3px; align-items:center; margin: 8px 0; }
+    .row input{
+      flex:1;
+      border:1px solid rgba(0,0,0,0.12);
+      border-radius: 12px;
+      padding: 8px 10px;
+      outline:none;
+      font-size: 10px;
+    }
+    .row select{
+      border:1px solid rgba(0,0,0,0.12);
+      border-radius: 12px;
+      padding: 8px 10px;
+      outline:none;
+      font-size: 12px;
+      background: white;
+    }
+    .row button{
+      border:none;
+      border-radius: 6px;
+      width: 30px;
+      height: 30px;
+      cursor:pointer;
+      background: rgba(255, 255, 255, 0.1);
+      font-size: 10px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+
+    #todo-list{
+      margin: 8px 0 0;
+      padding: 0;
+      list-style:none;
+    }
+    #todo-list li{
+      display:flex; justify-content: space-between; gap: 8px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.04);
+      margin-bottom: 8px;
+    }
+    #todo-list li small{ opacity:.65; }
+    #todo-list li button{ border:none; background:transparent; cursor:pointer; }
+
+    /* 聊天侧栏 */
+    #chat-log{ display:flex; flex-direction: column; gap: 8px; }
+    .msg{
+      max-width: 92%;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.05);
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .msg.me{ margin-left:auto; background: rgba(0,0,0,0.10); }
+    .msg .who{ font-weight: 700; opacity:.75; margin-bottom: 3px; }
+
+    /* ========== 底部：只有 菜单 + 输入框 + 发送（尺寸不随面板变化） ========== */
+    #bottom{
+      position:absolute;
+      left: var(--pad);
+      right: var(--pad);
+      bottom: var(--pad);
+      height: var(--bottom-h);
+      display:flex;
+      align-items:center;
+      gap: 10px;
+      padding: 8px 10px;
+      box-sizing:border-box;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 14px 34px rgba(0,0,0,0.18);
+      z-index: 60;
+    }
+
+    #chat-input{
+      flex:1;
+      border:none;
+      outline:none;
+      background: transparent;
+      font-size: 13px;
+    }
+
+    .icon-btn{
+      width: 38px; height: 38px;
+      border:none;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.06);
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:#111;
+      transition: transform .12s, background .12s;
+    }
+    .icon-btn:hover{ transform: scale(1.06); background: rgba(0,0,0,0.10); }
+
+    /* ========== 菜单：气泡向上展开（黑白） ========== */
+    #menu-wrap{ position: relative; }
+    #menu-pop{
+      position:absolute;
+      left: 0;
+      bottom: 46px;
+      display:none;
+      flex-direction: column;
+      gap: 10px;
+      padding: 6px 0;
+    }
+    body.menu-open #menu-pop{ display:flex; }
+
+    .bubble{
+      width: 40px; height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,0.10);
+      background: rgba(255,255,255,0.92);
+      color:#111;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.16);
+      transition: transform .12s;
+    }
+    .bubble:hover{ transform: scale(1.06); }
+
+    .bubble.active{
+      background: rgba(0,0,0,0.90);
+      color: #fff;
+      border-color: rgba(0,0,0,0.0);
+    }
+    .bubble.danger{
+      background: rgba(255,255,255,0.92);
+      color:#111;
+    }
+    .bubble.danger:hover{ background: rgba(0,0,0,0.08); }
+
+    /* ========== 输入框上方：仅显示“本次 OC 回复”（聊天未开启时） ========== */
+    #inline-reply{
+      position:absolute;
+      left: var(--pad);
+      right: calc(var(--pad) + 150px); /* 给右下角人物留空，避免重叠 */
+      bottom: calc(var(--bottom-h) + var(--pad) + 6px);
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.14);
+      font-size: 12.5px;
+      line-height: 1.35;
+      color:#111;
+      display:none;
+      z-index: 55;
+      pointer-events:none;
+    }
+
+    /* 小型状态条：用于加载/错误等系统提示（不等于人物台词弹窗） */
+    #status-line{
+      position:absolute;
+      left: var(--pad);
+      right: calc(var(--pad) + 150px);
+      bottom: calc(var(--bottom-h) + var(--pad) + 6px);
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: rgba(0,0,0,0.78);
+      color: #fff;
+      font-size: 12px;
+      display:none;
+      z-index: 56;
+      pointer-events:none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="stage">
+    <!-- 左侧：面板区（窗口变宽时出现；桌宠区域不动） -->
+    <div id="panels">
+      <!-- 工具面板（左侧） -->
+      <div id="tools-panel" class="side">
+        <div class="head">
+          <span>待办事件</span>
+          <button class="icon-btn" id="btn-tools-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="content">
+          <div class="kvs">
+            <div>
+              <div class="big" id="clock">--:--</div>
+              <div class="sub" id="date">----</div>
+            </div>
+            <div style="text-align:right">
+              <div class="big" id="weather">天气：--</div>
+              <div class="sub" id="weather2">--</div>
+            </div>
+          </div>
+
+          <div style="font-weight:800;margin-top:4px;">待办</div>
+          <div class="row">
+            <input id="todo-input" placeholder="写一个待办…" />
+            <select id="todo-due">
+              <option value="0">不提醒</option>
+              <option value="15">15分钟</option>
+              <option value="60">1小时</option>
+              <option value="180">3小时</option>
+            </select>
+            <!-- ✅ 用加号图标代替文字按钮 -->
+            <button id="btn-add-todo" title="添加待办"><i class="fa-solid fa-plus"></i></button>
+          </div>
+          <ul id="todo-list"></ul>
+        </div>
+      </div>
+
+      <!-- 聊天面板（左侧） -->
+      <div id="chat-panel" class="side">
+        <div class="head">
+          <span>聊天</span>
+          <button class="icon-btn" id="btn-chat-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="content">
+          <div id="chat-log"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧：桌宠基础区（人物+底栏） -->
+    <div id="base">
+      <!-- 信息面板（默认隐藏） -->
+      <div id="info-panel">
+        <div id="info-top">
+          <div id="info-name">OC</div>
+          <div style="opacity:.75;font-size:12px">信息面板</div>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <span>好感</span>
+            <div class="bar"><b id="bar-aff"></b></div>
+            <span class="val" id="val-aff">0</span>
+          </div>
+          <div class="stat">
+            <span>饱腹</span>
+            <div class="bar"><b id="bar-hun"></b></div>
+            <span class="val" id="val-hun">0</span>
+          </div>
+          <div class="stat">
+            <span>清洁</span>
+            <div class="bar"><b id="bar-cln"></b></div>
+            <span class="val" id="val-cln">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 数字人区域 -->
+      <div id="sdk-wrap"><div id="sdk"></div></div>
+
+      <!-- 输入框上方：仅显示 OC 本次回复（聊天未开启时才用） -->
+      <div id="inline-reply"></div>
+      <!-- 系统状态提示（加载/错误） -->
+      <div id="status-line"></div>
+
+      <!-- 底部：菜单 + 输入框 + 发送 -->
+      <div id="bottom">
+        <div id="menu-wrap">
+          <button class="icon-btn" id="btn-menu" title="菜单"><i class="fa-solid fa-bars"></i></button>
+          <div id="menu-pop">
+            <button class="bubble" id="m-info"  title="开启/关闭信息面板"><i class="fa-solid fa-circle-info"></i></button>
+            <button class="bubble" id="m-feed"  title="投喂"><i class="fa-solid fa-candy-cane"></i></button>
+            <button class="bubble" id="m-clean" title="清洁"><i class="fa-solid fa-soap"></i></button>
+            <button class="bubble" id="m-tools" title="开启/关闭待办页面"><i class="fa-solid fa-screwdriver-wrench"></i></button>
+            <button class="bubble" id="m-chat"  title="开启/关闭聊天界面"><i class="fa-solid fa-comments"></i></button>
+            <button class="bubble danger" id="m-quit" title="退出"><i class="fa-solid fa-power-off"></i></button>
+          </div>
+        </div>
+
+        <input id="chat-input" placeholder="对 TA 说点什么…（Enter 发送）" />
+        <button class="icon-btn" id="btn-send" title="发送"><i class="fa-solid fa-paper-plane"></i></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://media.xingyun3d.com/xingyun3d/general/litesdk/xmovAvatar@latest.js"></script>
+  <script src="config.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

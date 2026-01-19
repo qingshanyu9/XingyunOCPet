@@ -1,0 +1,15 @@
+﻿{
+    "version":  "1.0.0",
+    "name":  "xingyun-oc-pet",
+    "description":  "基于魔珐星云SDK的桌面OC宠物",
+    "scripts":  {
+                    "start":  "electron .",
+                    "query-ka":  "node tools/query_ka.js"
+                },
+    "dependencies":  {
+                         "axios":  "^1.6.0",
+                         "crypto-js":  "^4.2.0",
+                         "electron":  "^28.0.0"
+                     },
+    "main":  "main.js"
+}
